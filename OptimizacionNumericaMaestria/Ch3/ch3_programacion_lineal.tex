@@ -63,7 +63,7 @@
 \end{frame}
 
 % --- Esquema -----------------------------------------------------------------
-\begin{frame}{Esquema de la presentación}
+\begin{frame}{Temas de Programación Lineal}
   \tableofcontents
 \end{frame}
 
@@ -175,7 +175,8 @@
   \fuente
 \end{frame}
 
-\begin{frame}{Por qué importa la holgura}
+\begin{frame}{Arrancando el Método Simplex}
+    \framesubtitle{?`Cómo hallar el primer vértice?}
   \small
   \begin{columns}[T,onlytextwidth]
     \begin{column}{.48\textwidth}
@@ -242,7 +243,7 @@
 \begin{frame}{Regla de pivoteo de Dantzig}
   \small
   \begin{enumerate}
-    \item \textbf{Aflojar una restricción activa (elegir la columna).}
+      \item \textbf{Relajar una restricción activa (elegir la columna).}
       Se elige la dirección en que el objetivo más crece: la componente mayor
       del gradiente $\nabla f = c$. Esa variable tight se afloja.
     \item \textbf{Tensar una variable holgada (elegir la fila).}
@@ -332,35 +333,6 @@
   \fuente
 \end{frame}
 
-\begin{frame}{Ejemplo: el tableau paso a paso}
-  \small
-  \begin{center}
-    \begin{tabularx}{\textwidth}{@{}c c r r r r r@{}}
-      \toprule
-      & $f$ & $x_1$ & $x_2$ & $s_1$ & $s_2$ & RHS \\
-      \midrule
-      $f$   & 1 & $-100$ & $-400$ & 0 & 0 & 0 \\
-      $s_1$ & 0 & 1 & 1 & 1 & 0 & 50 \\
-      $s_2$ & 0 & 0 & 1 & 0 & 1 & 30 \\
-      \midrule
-      \multicolumn{7}{c}{\itshape tras el pivote en $x_2$ (se afloja $x_2$, se tensa $s_2$)} \\
-      $f$   & 1 & $-100$ & 0 & 0 & 400 & 12000 \\
-      $s_1$ & 0 & 1 & 0 & 1 & $-1$ & 20 \\
-      $x_2$ & 0 & 0 & 1 & 0 & 1 & 30 \\
-      \midrule
-      \multicolumn{7}{c}{\itshape tras el pivote en $x_1$ (se afloja $x_1$, se tensa $s_1$)} \\
-      $f$   & 1 & 0 & 0 & 100 & 300 & $\mathbf{14000}$ \\
-      $x_1$ & 0 & 1 & 0 & 1 & $-1$ & 20 \\
-      $x_2$ & 0 & 0 & 1 & 0 & 1 & 30 \\
-      \bottomrule
-    \end{tabularx}
-  \end{center}
-  \vfill
-  {\scriptsize\color{gray}
-    Coincide exactamente con el método a mano de la sección anterior:
-    vértice $(20,30)$, $f = 14000$. Ya no hay coeficientes negativos $\Rightarrow$ óptimo.}
-  \fuente
-\end{frame}
 
 \begin{frame}{Excepciones y casos borde}
   \small
