@@ -1,0 +1,1560 @@
+% =============================================================================
+%  Capítulo 4: Regresión por Mínimos Cuadrados
+%  Basado en:
+%    Steven L. Brunton, "Optimization: A Bootcamp for Machine Learning,
+%    Inverse Problems, and Control", Cambridge University Press, 2026.
+%    Capítulo 4, secciones 4.1--4.8 (pp. 122-166).
+%
+%  Contenido verificado del capítulo:
+%    4.1 Least-Squares Regression
+%    4.2 Singular Value Decomposition
+%    4.3 Minimum Norm Regression
+%    4.4 Condition Number and Regularization
+%    4.5 Constrained Least-Squares
+%    4.6 Quadratic Programming
+%    4.7 Nonlinear Least-Squares: Gauss-Newton Methods
+%    4.8 The Conjugate Gradient Method
+%
+%  Compilar:  make
+% =============================================================================
+
+\documentclass[10pt,aspectratio=169]{beamer}
+
+% --- Idioma y codificación ---------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+
+% --- Matemáticas -------------------------------------------------------------
+\usepackage{amsmath,amssymb,mathtools}
+
+% --- Tablas y diseño ---------------------------------------------------------
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+
+% --- Colores -----------------------------------------------------------------
+\definecolor{unah}{RGB}{0,82,155}
+\definecolor{acento}{RGB}{0,135,110}
+
+\setbeamercolor{structure}{fg=unah}
+\setbeamercolor{frametitle}{fg=unah}
+\setbeamercolor{itemize item}{fg=acento}
+\setbeamercolor{itemize subitem}{fg=unah}
+\setbeamertemplate{itemize item}{\color{acento}\scriptsize$\blacktriangleright$}
+\setbeamertemplate{itemize subitem}{\color{unah}\scriptsize$\bullet$}
+
+% --- Plantillas --------------------------------------------------------------
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+% --- Atajos ------------------------------------------------------------------
+\newcommand{\fuente}{\vfill{\scriptsize\color{gray}Brunton, \emph{Optimization Bootcamp}, Cap.~4}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\col}{\mathrm{col}}
+\newcommand{\rk}{\mathrm{rank}}
+\newcommand{\argmin}{\operatorname*{arg\,min}}
+
+\title{Cap. 4: Regresión por Mínimos Cuadrados}
+\subtitle{Optimización Numérica --- Maestría en Matemática}
+\author{Luis Berlioz}
+\date{\today}
+
+% =============================================================================
+\begin{document}
+% =============================================================================
+
+% --- Portada -----------------------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% --- Esquema -----------------------------------------------------------------
+\begin{frame}{Temas del capítulo}
+  \tableofcontents
+\end{frame}
+
+% =============================================================================
+\section{Mínimos cuadrados lineales}
+% =============================================================================
+
+\begin{frame}{El problema en una línea}
+  \small
+  Un sistema lineal \textbf{con más ecuaciones que incógnitas} no tiene solución
+  exacta. Se convierte en un problema de optimización:
+
+  \[
+    Ax = b \qquad\text{\scriptsize\textcolor{gray}{(4.1)}}
+    \qquad\Longrightarrow\qquad
+    \min_x \; \|Ax - b\|_2^2 \qquad\text{\scriptsize\textcolor{gray}{(4.2)}}
+  \]
+
+  \begin{itemize}
+    \item La solución es \textbf{analítica y cerrada}:
+      \[
+        x = A^{\dagger} b \tag{4.3}
+      \]
+      con $A^{\dagger}$ la \textbf{pseudo-inversa de Moore--Penrose}.
+    \item La generalización no lineal
+      $\displaystyle \min_\theta \|N_\theta(x) - y\|_2^2$
+      \textbf{no es convexa} y exige métodos iterativos ($\S4{.}7$).
+  \end{itemize}
+
+  \begin{block}{La cadena del capítulo}
+    \centering\scriptsize
+    solución cerrada $\to$ SVD $\to$ norma mínima $\to$ conditioning
+    $\to$ regularización $\to$ restricciones y QP $\to$ Gauss--Newton
+    $\to$ gradiente conjugado
+  \end{block}
+\end{frame}
+
+\begin{frame}{Cuadrado, sobredeterminado, subdeterminado}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.40\textwidth}
+      \small
+      \begin{itemize}
+        \item \textbf{Cuadrado} ($m=n$): invertir la matriz; solución exacta.
+        \item \textbf{Sobredeterminado} ($m \gg n$): más ecuaciones que
+          incógnitas. \emph{Tall-skinny}. Casi nunca hay solución exacta
+          $\Rightarrow$ se minimiza el error.
+        \item \textbf{Subdeterminado} ($m \ll n$): menos ecuaciones que
+          incógnitas. \emph{Short-fat}. Infinitas soluciones
+          $\Rightarrow$ se elige la de norma mínima.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.58\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_2.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.2: regresión sobredeterminada (izq.)
+      y subdeterminada (der.)}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{El modelo de regresión lineal}
+  \small
+  Los datos se ordenan como filas de una matriz $A \in \R^{m\times n}$ y un
+  vector de resultados $b \in \R^m$. Se busca el peso $x \in \R^n$ tal que
+  $b$ se aproxime por combinación lineal de las \textbf{columnas} de $A$:
+
+  \[
+    Ax \approx b
+  \]
+
+  \begin{itemize}
+    \item Cada columna de $A$ es un \textbf{atributo} o predictor; cada fila,
+      una \textbf{medición}.
+    \item $b$ casi nunca es exacto: viene contaminado con ruido de medición,
+      modelado como ruido blanco Gaussiano i.i.d.
+      \[
+        b = b_{\text{true}} + \epsilon
+      \]
+    \item Motivación física (p.~122): el equilibrio de fuerzas en las juntas de
+      un puente da una ecuación por junta. Con ruido en $b$ o imperfecciones en
+      $A$, resolver por las fuerzas internas es un \textbf{problema inverso de
+      mínimos cuadrados}.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{Las ecuaciones normales}
+  \small
+  Expandir el objetivo y anular el gradiente:
+
+  \begin{align*}
+    \|Ax-b\|_2^2 &= (Ax-b)^T(Ax-b) \\
+                 &= x^TA^TAx - x^TA^Tb - b^TAx + b^Tb \tag{4.5c}
+  \end{align*}
+  \[
+    \nabla_x \|Ax-b\|_2^2 = 2A^TAx - 2A^Tb = 0
+    \;\;\Longrightarrow\;\;
+    \boxed{\,A^TAx = A^Tb\,} \tag{4.6b}
+  \]
+  \[
+    x = (A^TA)^{-1}A^Tb \tag{4.6c}
+  \]
+
+  \begin{alertblock}{La trampa}
+    (4.6c) \textbf{solo vale si $A^TA$ es invertible}, es decir si $A$ tiene
+    $n$ columnas linealmente independientes y $m \ge n$. Es la fórmula del caso
+    \textbf{sobredeterminado}; no sirve para \emph{short-fat}.
+  \end{alertblock}
+  \fuente
+\end{frame}
+
+\begin{frame}{La pseudo-inversa de Moore--Penrose}
+  \small
+  \[
+    A^{\dagger} = (A^TA)^{-1}A^T
+    \qquad\text{(izquierda)}
+    \qquad\qquad
+    A^{\dagger} = A^T(AA^T)^{-1}
+    \qquad\text{(derecha)}
+  \]
+
+  \begin{itemize}
+    \item Está definida incluso para $A$ no cuadrada, pero cada forma exige
+      rango completo en su lado.
+    \item Numéricamente \textbf{no se invierte $A^TA$}: su número de condición
+      es el cuadrado del de $A$. Se usa la \textbf{SVD}:
+      \[
+        A = U\Sigma V^T
+        \quad\Longrightarrow\quad
+        A^{\dagger} = V\Sigma^{-1}U^T
+        \quad\Longrightarrow\quad
+        x = V\Sigma^{-1}U^T b \tag{4.7}
+      \]
+    \item $U$ y $V$ son ortogonales: invertirlas es transponerlas.
+      $\Sigma$ es diagonal: invertirla son $n$ divisiones.
+  \end{itemize}
+
+  \begin{block}{Por qué importa}
+    \scriptsize
+    La SVD es la técnica de elección para invertir matrices grandes: es
+    numéricamente estable, siempre existe y no necesita formar $A^TA$.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{Norma 2 frente a norma 2 al cuadrado}
+  \begin{columns}[c,onlytextwidth]
+    \begin{column}{.52\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_3.png}
+      \end{figure}
+    \end{column}
+    \begin{column}{.45\textwidth}
+      \small
+      \begin{itemize}
+        \item Izquierda: $\|x\|_2 = \sqrt{x_1^2+x_2^2}$.
+          Sus conjuntos de nivel son \textbf{círculos}.
+        \item Derecha: $\|x\|_2^2 = x_1^2+x_2^2$.
+          Mismos conjuntos de nivel, misma solución óptima.
+        \item Minimizar $\|\cdot\|_2$ o $\|\cdot\|_2^2$ da \textbf{el mismo
+          $x^*$}: el cuadrado es monótono.
+        \item Pero el cuadrado \textbf{pesa distinto} los errores: un error
+          grande cuesta mucho más que dos pequeños. De ahí la sensibilidad a
+          outliers.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}[fragile]{Ejemplo: datos aleatorios (E4.1)}
+  \small
+  Pseudo-inversa calculada por SVD frente a \texttt{np.linalg.pinv}:
+
+  \begin{semiverbatim}
+import numpy as np
+np.random.seed(42)
+m, n = 20, 5
+A = np.random.randn(m, n)
+b = np.random.randn(m)
+
+U, S, VT = np.linalg.svd(A, full_matrices=0)
+x = VT.T @ np.linalg.inv(np.diag(S)) @ U.T @ b
+
+x = np.linalg.pinv(A) @ b          # alternativa
+  \end{semiverbatim}
+
+  \begin{itemize}
+    \item \texttt{full\_matrices=0} pide la \textbf{SVD económica}: solo los
+      valores singulares no nulos, matrices $m\times n$ en vez de $m\times m$.
+    \item Ambas líneas dan el mismo $x$ hasta error de redondeo.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{Ejemplo: calor del cemento (E4.2)}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.52\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_5.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.5: calor generado por 13 mezclas de cemento.}
+    \end{column}
+    \begin{column}{.45\textwidth}
+      \small
+      $A \in \R^{13\times 4}$: cuatro ingredientes, trece mezclas. Se buscan los
+      pesos $x$ que relacionan proporciones con calor.
+
+      \vspace{2mm}
+      \centering
+      \begin{tabular}{@{}lr@{}}
+        \toprule
+        Ingrediente & $x_j$ \\
+        \midrule
+        Tricalcium aluminate   & 2.1930 \\
+        Tricalcium silicate    & 1.1533 \\
+        Tetracalcium alumifer. & 0.7585 \\
+        Beta-dicalcium silicate& 0.4863 \\
+        \bottomrule
+      \end{tabular}
+
+      \vspace{3mm}
+      \raggedright
+      \scriptsize
+      Es el experimento clásico de Hald (1952): cuatro predictores fuertemente
+      correlacionados y solo trece datos.
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Ejemplo: precios de vivienda en Boston (E4.3)}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.58\textwidth}
+      \begin{itemize}
+        \item $506$ viviendas, $13$ atributos: criminalidad per cápita, tasa de
+          impuesto predial, etc.
+        \item $A \in \R^{506\times 13}$: problema claramente sobredeterminado.
+        \item \textbf{Hay que añadir una columna de unos}: da el término
+          constante (la ordenada al origen). Equivale a centrar cada columna
+          restando su media.
+        \item El ajuste no captura los precios extremos altos: los
+          \textbf{modelos lineales simples fallan en las colas}.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.40\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_6.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.6: valor real frente a valor ajustado.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Outliers: por qué $\ell_2$ no basta}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.50\textwidth}
+      \small
+      \begin{itemize}
+        \item Un outlier entra \textbf{al cuadrado}: su error domina y
+          \emph{arrastra} toda la recta.
+        \item Alternativa robusta: \textbf{desviación absoluta mínima}
+          \[
+            \min_x \; \|Ax - b\|_1 \tag{4.8}
+          \]
+        \item Regla general: usar $\ell_1$ como pérdida suele ser más robusto
+          a outliers. El precio es perder la solución cerrada: hay que resolver
+          un problema de optimización.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_7.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.7: $\ell_2$ (sensible) frente a
+      $\ell_1$ (robusta).}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Panel 4.1: ¿mínimos cuadrados o desviación absoluta?}
+  \small
+  Doscientos años de debate, con una lectura estadística limpia:
+
+  \vspace{2mm}
+  \centering
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    & \textbf{Mínimos cuadrados} ($\ell_2$) & \textbf{LAD} ($\ell_1$) \\
+    \midrule
+    Estima               & la \textbf{media}   & la \textbf{mediana} \\
+    Robustez a outliers  & baja                & alta \\
+    Óptimo               & cerrado (ecuaciones normales) & programación lineal \\
+    Historia             & Gauss y Legendre, $\sim$1800 & Boscovich, 1757 \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{4mm}
+  \raggedright
+  \begin{itemize}
+    \item La media es insesgada para ruido Gaussiano; la mediana es insesgada
+      para ruido Laplaciano.
+    \item Ejemplo del libro (sep.\ 2024): riqueza mediana en EE.\,UU.\
+      $\sim\$200$k frente a riqueza media $\sim\$1{,}000$k.
+      \textbf{La media la mueven los outliers; la mediana no.}
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{Los cuatro subespacios fundamentales}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \begin{itemize}
+        \item $\col(A)$: span de las columnas (\emph{rango}).
+        \item $\mathrm{row}(A) = \col(A^T)$: span de las filas.
+        \item $\ker(A)$: vectores con $Ax=0$.
+        \item $\ker(A^T)$: complemento ortogonal de $\col(A)$.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{block}{Descomposición en suma directa (p.~131)}
+        \[
+          \col(A) \oplus \ker(A^T) = \R^{m} \tag{4.9a}
+        \]
+        \[
+          \col(A^T) \oplus \ker(A) = \R^{n} \tag{4.9b}
+        \]
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \vspace{2mm}
+  Consecuencias sobre $Ax=b$:
+  \begin{itemize}
+    \item $b \in \col(A)$ y $\dim\ker(A) \ne 0$ $\Rightarrow$ \textbf{infinitas
+      soluciones} (garantizado si $A$ es short-fat).
+    \item $b \notin \col(A)$ $\Rightarrow$ \textbf{ninguna solución}: el sistema
+      es inconsistente.
+    \item Se elige entonces \textbf{la mejor aproximación} (\emph{least squares})
+      o \textbf{la de norma mínima}, según el régimen.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{Las dos soluciones canónicas}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \begin{block}{Sobredeterminado: mínimos cuadrados}
+        \[
+          \min_x \; \|Ax-b\|_2^2
+        \]
+        \[
+          x = A^{\dagger}b = (A^TA)^{-1}A^Tb
+        \]
+        \scriptsize Minimiza el error; $b$ se proyecta sobre $\col(A)$.
+      \end{block}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{block}{Subdeterminado: norma mínima}
+        \[
+          \min_x \; \|x\|_2^2 \quad \text{s.a. } Ax=b
+        \]
+        \[
+          x = A^T(AA^T)^{-1}b
+        \]
+        \scriptsize Satisface la ecuación exacta con el $x$ más corto posible.
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \vspace{1mm}
+  \begin{itemize}
+    \item Ambas son la \textbf{misma} pseudo-inversa $A^{\dagger}$, aplicada por
+      lados distintos.
+    \item Obs.~1 (p.~131): con matrices \textbf{aleatorias} los estereotipos son
+      ciertos con altísima probabilidad. Para $A$ aleatoria con $m \gg n$ es
+      casi imposible que $b \in \col(A)$.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{La descomposición en valores singulares}
+% =============================================================================
+
+\begin{frame}{Qué es la SVD}
+  \small
+  \[
+    A = U\Sigma V^T \tag{4.10}
+  \]
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.50\textwidth}
+      \begin{itemize}
+        \item $U \in \R^{m\times m}$ y $V \in \R^{n\times n}$
+          \textbf{ortogonales}: columnas ortonormales.
+        \item Columnas de $U$: \textbf{vectores singulares izquierdos}.
+        \item Columnas de $V$: \textbf{derechos}.
+        \item Diagonal de $\Sigma$: valores singulares ordenados
+          \[
+            \sigma_1 \ge \sigma_2 \ge \cdots \ge \sigma_n \ge 0 .
+          \]
+        \item El \textbf{rango} de $A$ es el número de $\sigma_j$ no nulos.
+        \item Para matrices complejas, $U,V$ son unitarias y $T$ pasa a ser
+          transpuesta conjugada $*$.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_8.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.8: la SVD descompone en filas y columnas
+      ortogonales ordenadas por varianza.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{SVD económica y truncada}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.52\textwidth}
+      \textbf{SVD económica} (solo $\sigma$ no nulos, $m \ge n$):
+      \[
+        A = \hat{U}\hat{\Sigma}V^T \tag{4.11}
+      \]
+      \textbf{SVD truncada de rango $r$}:
+      \[
+        \tilde{A} = \tilde{U}\tilde{\Sigma}\tilde{V}^T
+      \]
+      $\tilde{U},\tilde{V}$: primeras $r$ columnas;
+      $\tilde{\Sigma}$: bloque $r\times r$.
+
+      \vspace{2mm}
+      \begin{itemize}
+        \item ``Truncar'' = quedarse con los $r$ patrones dominantes.
+        \item Es el mismo mecanismo que \textbf{PCA}.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.46\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_9.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.9: aproximación truncada con
+      $r$ valores singulares.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{La SVD como suma de matrices de rango 1}
+  \small
+  \begin{block}{Panel 4.2 (p.~133)}
+    Como $\Sigma$ es diagonal, la SVD se lee como una suma de términos
+    $\sigma_j u_j v_j^T$, cada uno de rango 1 y ortogonal a los demás:
+    \[
+      X \approx \sigma_1 u_1 v_1^T + \sigma_2 u_2 v_2^T
+             + \cdots + \sigma_r u_r v_r^T
+    \]
+    Ordenados por magnitud, los primeros términos capturan lo grueso;
+    los últimos, el detalle fino (y el ruido).
+  \end{block}
+
+  \vspace{1mm}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \textbf{Subespacios en términos de $U,V$:}
+      \begin{itemize}
+        \item $\col(A) = \col(\hat{U})$
+        \item Complemento ortogonal de $\col(A)$: $\col(\hat{U}^\perp)$
+        \item $\mathrm{row}(A)$ generado por columnas de $V$
+        \item $\ker(A) = \col(V^\perp)$
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{block}{Por qué es la herramienta}
+        \scriptsize
+        Da a la vez: rango numérico, base de los cuatro subespacios,
+        pseudo-inversa estable, aproximación óptima de bajo rango y
+        diagnóstico de conditioning. Todo con una sola factorización.
+      \end{block}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Resolver $Ax=b$ con la SVD}
+  \small
+  Sustituyendo la SVD truncada exacta ($A=\hat{U}\hat{\Sigma}V^T$) y
+  ``invirtiendo'' cada factor:
+
+  \[
+    A^{\dagger} \triangleq V\hat{\Sigma}^{-1}\hat{U}^T
+    \qquad\Longrightarrow\qquad
+    A^{\dagger}A = VV^T \tag{4.12}
+  \]
+  \[
+    A^{\dagger}Ax^* = A^{\dagger}b
+    \;\;\Longrightarrow\;\;
+    x^* = V\hat{\Sigma}^{-1}\hat{U}^T b \tag{4.13}
+  \]
+
+  \begin{itemize}
+    \item Sustituyendo de vuelta:
+      $Ax^* = \hat{U}\hat{U}^T b$ \ \ (4.14b).
+    \item \textbf{Interpretación: $x^*$ es la proyección de $b$ sobre
+      $\col(\hat{U})$}. El residuo $b - \hat{U}\hat{U}^Tb$ es la parte de $b$
+      que vive en $\ker(A^T)$ y que \emph{ningún} $x$ puede explicar.
+    \item $A^{\dagger}A = I$ solo si la SVD captura \emph{todos} los valores
+      singulares no nulos. Con rango $r$ se obtiene $\tilde{V}\tilde{V}^T$:
+      una aproximación de la identidad.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{Teorema de Eckart--Young}
+  \small
+  \begin{block}{Teorema 1 (Eckart--Young [159], p.~135)}
+    La mejor aproximación de rango $r$ en norma de Frobenius es la SVD truncada:
+    \[
+      \argmin_{\tilde{X}:\ \rk(\tilde{X})=r} \|X - \tilde{X}\|_F
+      = \tilde{U}\tilde{\Sigma}\tilde{V}^T \tag{4.15}
+    \]
+    con $\|X\|_F = \big(\sum_{ij} X_{ij}^2\big)^{1/2}$, equivalente a la
+    norma 2 de $X(:)$.
+  \end{block}
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \textbf{Error exacto en Frobenius:}
+      \[
+        \|X - \tilde{X}\|_F^2 = \sum_{k=r+1}^{m} \sigma_k^2 \tag{4.16}
+      \]
+      \scriptsize Toda matriz de rango $r$ tiene al menos este error.
+      El error relativo (4.17) mide la \textbf{varianza faltante} --- la
+      métrica que usa PCA.
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \textbf{Sorprendentemente, también en norma espectral:}
+      \[
+        \|X - \tilde{X}\|_2 = \sigma_{r+1} \tag{4.19}
+      \]
+      \scriptsize porque
+      $X-\tilde{X} = \sum_{k>r}\sigma_k u_k v_k^T$ y el máximo se alcanza en
+      $v = v_{r+1}$.
+    \end{column}
+  \end{columns}
+
+  \vspace{1mm}
+  \footnotesize
+  Schmidt (Gram--Schmidt) ya lo había probado para espacios de funciones;
+  Eckart y Young lo redescubrieron en 1936.
+  \fuente
+\end{frame}
+
+\begin{frame}{Costo de la SVD}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \textbf{Algoritmo (p.~134):}
+      \begin{enumerate}
+        \item Reducir $A$ a \textbf{bidiagonal}. Con $m \gg n$: primero
+          factorización \textbf{QR}, luego reflejos de Householder.
+        \item SVD de la bidiagonal con el \textbf{QR modificado de
+          Golub--Kahan}.
+      \end{enumerate}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \textbf{Entonces $A^{\dagger}$ es barata:}
+      \begin{itemize}
+        \item invertir $U$ o $V$: multiplicar por la transpuesta,
+          $O(m^2)$;
+        \item invertir $\Sigma$: $O(m)$, es diagonal;
+        \item \emph{contraste:} invertir una matriz densa cuesta $O(m^3)$.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{2mm}
+  \begin{block}{Regla práctica}
+    \scriptsize
+    Nunca se forma ni se invierte $A^TA$: se factoriza $A$ una vez y se
+    reutiliza la misma SVD para mínimos cuadrados, norma mínima,
+    regularización y truncamiento.
+  \end{block}
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{Norma mínima y compressed sensing}
+% =============================================================================
+
+\begin{frame}{El problema de norma mínima}
+  \small
+  Caso \textbf{subdeterminado}: hay infinitas soluciones de $Ax=b$.
+  Se elige la más corta:
+
+  \[
+    \min_x \; \|x\|_2^2 \qquad \text{s.a. } Ax = b \tag{4.22a--b}
+  \]
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \begin{itemize}
+        \item Aquí el objetivo es $\|x\|_2^2$, \textbf{no} el residual.
+          La ecuación entra como \textbf{restricción}.
+        \item Geométricamente: la bola $\ell_2$ de radio mínimo que toca el
+          hiperplano $Ax=b$.
+        \item La solución $\ell_2$ mínima es \textbf{densa}: reparte el peso
+          entre todas las coordenadas.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_11.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.11: las bolas $\ell_2$, $\ell_1$ y
+      $\ell_\infty$ cortando la recta $Ax=b$.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Derivación por multiplicadores de Lagrange}
+  \small
+  \[
+    L(x,\lambda) = x^Tx + \lambda^T(Ax-b) \tag{4.23}
+  \]
+  \[
+    \nabla_x L = 2x + A^T\lambda = 0
+    \;\;\Longrightarrow\;\;
+    x = -\tfrac12 A^T\lambda \tag{4.24}
+  \]
+  \[
+    \nabla_\lambda L = Ax - b = 0
+    \;\;\Longrightarrow\;\;
+    -AA^T\lambda = b
+    \;\;\Longrightarrow\;\;
+    \lambda = -2(AA^T)^{-1}b \tag{4.25}
+  \]
+  \[
+    \boxed{\,x = A^T(AA^T)^{-1}b\,} \tag{4.26--4.27}
+  \]
+
+  \begin{block}{Pseudo-inversa derecha}
+    \scriptsize
+    Requiere que $AA^T$ sea invertible, es decir que $A$ tenga \textbf{rango de
+    fila completo} (lo genérico en una matriz short-fat). Con la SVD es la misma
+    fórmula $x = V\Sigma^{-1}U^Tb$: $A^{\dagger}$ es \emph{una sola} matriz.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{Compressed sensing: la idea}
+  \small
+  \begin{itemize}
+    \item Imágenes y audio son \textbf{compresibles}: en una base Fourier o
+      wavelet, casi todos los coeficientes son despreciables. Es la base de
+      JPEG y MP3.
+    \item Pero el paradigma clásico \textbf{mide todo y comprime después}.
+    \item Invertirlo: medir solo una \textbf{submuestra aleatoria} y reconstruir
+      los pocos modos activos. Del millón de píxeles de una imagen,
+      potencialmente basta el $10\%$.
+  \end{itemize}
+
+  \vspace{1mm}
+  \begin{block}{Formulación}
+    Señal compresible $x = \Psi s$, con $s$ \textbf{$K$-disperso}
+    ($K$ entradas no nulas) y mediciones $y = Cx$:
+    \[
+      y = Cx = C\Psi s = \Theta s \tag{4.29}
+    \]
+    con $C \in \R^{p\times n}$ y $p \ll n$: sistema subdeterminado.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{De $\ell_0$ a $\ell_1$: la relajación convexa}
+  \small
+  La solución más dispersa es la de \textbf{cardinalidad mínima}:
+  \[
+    \hat{s} = \argmin_s \; \|s\|_0
+    \qquad \text{s.a. } y = C\Psi s \tag{4.30}
+  \]
+  \begin{itemize}
+    \item $\|\cdot\|_0$ cuenta entradas no nulas: \textbf{no convexa} y
+      combinatoria. Exige verificar todos los $K$-dispersos posibles
+      $\Rightarrow$ \textbf{intratable} para $n$ y $K$ moderados.
+    \item Bajo condiciones sobre la matriz de medición $C$, se relaja a un
+      problema \textbf{convexo}:
+      \[
+        \hat{s} = \argmin_s \; \|s\|_1
+        \qquad \text{s.a. } y = C\Psi s \tag{4.31}
+      \]
+    \item \textbf{Hecho clave: la solución $\ell_1$ mínima es dispersa; la
+      $\ell_2$ mínima no lo es.} La bola $\ell_1$ tiene vértices en los ejes,
+      y el óptimo casi siempre cae en uno.
+    \item Con ruido, $\|C\Psi s - y\|_2 < \epsilon$ (4.32) o la forma
+      penalizada $\|C\Psi s-y\|_2 + \lambda\|s\|_1$ (4.33).
+  \end{itemize}
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{Conditioning y regularización}
+% =============================================================================
+
+\begin{frame}{Número de condición: el ruido amplificado}
+  \small
+  \[
+    \kappa(A) = \frac{\sigma_{\max}(A)}{\sigma_{\min}(A)} \tag{4.34}
+  \]
+  Mide la sensibilidad de $A$ frente a errores en la entrada. Si $b$ viene con
+  error $\epsilon_b$:
+  \[
+    A(x+\epsilon_x) = b + \epsilon_b
+    \qquad\Longrightarrow\qquad
+    \frac{\|x\|}{\|\epsilon_x\|}
+    = \frac{\sigma_{\min}}{\sigma_{\max}}\,
+      \frac{\|b\|}{\|\epsilon_b\|}
+  \]
+
+  \begin{alertblock}{Regla de oro}
+    El ruido en $b$ se amplifica por $\kappa(A)$ al invertir. Con columnas casi
+    paralelas, $\kappa(A)$ es enorme y $\kappa(A^TA)=\kappa(A)^2$ es peor:
+    por eso \textbf{jamás} se resuelve por ecuaciones normales en ese régimen.
+  \end{alertblock}
+
+  \vspace{1mm}
+  \small
+  \textbf{Mitigación por truncamiento} (p.~140): descartar los $\sigma$ bajo
+  $\kappa_{\text{obj}}\cdot\sigma_{\max}$ eleva el $\sigma_{\min}$ efectivo;
+  el precio es un subespacio $\hat{U}$ más pequeño.
+  \fuente
+\end{frame}
+
+\begin{frame}{Regularización de Tikhonov (ridge)}
+  \small
+  Añadir una penalización sobre $\|x\|_2^2$:
+  \[
+    x = \argmin_{x'} \; \|Ax'-b\|_2^2 + \alpha\|x'\|_2^2 \tag{4.38}
+  \]
+  \[
+    x = (A^TA+\alpha I)^{-1}A^Tb \tag{4.39}
+  \]
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.50\textwidth}
+      \begin{itemize}
+        \item El término $\alpha I$ \textbf{desplaza los valores propios lejos
+          de cero}: el número de condición efectivo es
+          $(\sigma_{\max}^2+\alpha)/(\sigma_{\min}^2+\alpha)$.
+        \item Se puede ver como un multiplicador de Lagrange que impone
+          $\|x\|_2^2 = c$: empuja a que las entradas tengan magnitud parecida
+          en vez de grandes y opuestas que se cancelan.
+        \item ``Ridge'' en estadística; en inversos es ``Tikhonov''.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_12.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.12: las soluciones ruidosas (elipses
+      azules) se arrastran hacia los círculos de $\|x\|_2^2$.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{El compromiso sesgo--varianza}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.50\textwidth}
+      \small
+      \begin{itemize}
+        \item \textbf{Sin regularizar:} alta varianza. El elipsoide de
+          soluciones posibles ante ruido es enorme y muy excéntrico.
+        \item \textbf{Con $\alpha$:} la varianza se encoge, pero la
+          distribución se \textbf{desplaza}: aparece sesgo.
+        \item $\alpha \to 0$: mínimos cuadrados puros.
+          $\alpha \to \infty$: $x \to 0$.
+        \item \textbf{Perspectiva bayesiana:} el término ridge equivale a un
+          prior Gaussiano con media cero e igual varianza en todas las
+          entradas (Cap.~7).
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_13.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.13: menos varianza (elipses oscuras
+      dentro de las claras), pero la media se desplaza.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Ridge sin invertir: la versión SVD}
+  \small
+  Sustituyendo $A = U\Sigma V^T$ en (4.39):
+
+  \begin{align*}
+    (A^TA+\alpha I)^{-1}
+      &= (V\Sigma^2V^T + \alpha VIV^T)^{-1} \\
+      &= \big(V(\Sigma^2+\alpha I)V^T\big)^{-1} \\
+      &= V(\Sigma^2+\alpha I)^{-1}V^T .
+  \end{align*}
+
+  \begin{block}{Lectura}
+    \small
+    \textbf{Basta sumarle $\alpha$ a cada valor singular al cuadrado antes de
+    invertir.} Nada de matrices $n\times n$: es un filtro sobre los $\sigma_j$,
+    \[
+      \frac{\sigma_j}{\sigma_j^2 + \alpha},
+    \]
+    que apaga suavemente las direcciones con $\sigma_j$ pequeño. Es la misma
+    familia de \emph{filtros espectrales} que usa el truncamiento duro de la
+    SVD, pero continuo en vez de abrupto.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{LASSO: regularización $\ell_1$}
+  \small
+  \[
+    x = \argmin_{x'} \; \|Ax'-b\|_2^2 + \lambda\|x'\|_1 \tag{4.40}
+  \]
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.52\textwidth}
+      \begin{itemize}
+        \item \emph{Least Absolute Shrinkage and Selection Operator}
+          (Tibshirani, 1996).
+        \item Ridge \textbf{encoge} los coeficientes; LASSO los
+          \textbf{apaga}: devuelve un $x$ \textbf{disperso}.
+        \item $\lambda$ se elige por \textbf{validación cruzada}
+          (típicamente 80/20).
+        \item Motivación: interpretabilidad. En modelos de enfermedad hay
+          decenas de predictores y la audiencia no es técnica.
+        \item Antecedentes: soft-thresholding de Donoho--Johnstone; garrote de
+          Breiman; navaja de Occam.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.46\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_14.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.14: los vértices de la bola $\ell_1$
+      atraen la solución hacia los ejes.}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Elastic net y el mapa de las penalizaciones}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.52\textwidth}
+      \textbf{Elastic net} (Zou--Hastie, 2005) combina ambas:
+      \[
+        x = \argmin_{x'}\; \|Ax'-b\|_2^2 + \lambda\|x'\|_1
+              + \alpha\|x'\|_2^2 \tag{4.41}
+      \]
+      \begin{itemize}
+        \item Ridge solo: encoge, no selecciona.
+        \item LASSO solo: selecciona, pero con predictores muy
+          correlacionados elige uno al azar y descarta el resto.
+        \item Elastic net: selecciona y además \textbf{agrupa} predictores
+          correlacionados.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.46\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=0.78\textwidth]{images/fig_4_15.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.15: conjuntos de nivel del elastic net con
+      $\lambda=\alpha=1$; se parecen a la bola $\ell_{3/2}$.}
+    \end{column}
+  \end{columns}
+
+  \vspace{1mm}
+  \footnotesize
+  Sin solución cerrada: se resuelven con métodos proximales, coordinate descent
+  o solvers de QP/SOCP.
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{Restricciones y programación cuadrática}
+% =============================================================================
+
+\begin{frame}{Mínimos cuadrados con restricciones de igualdad}
+  \small
+  \[
+    \min_x \; \|Ax-b\|_2^2
+    \qquad \text{s.a. } Cx = d \tag{4.42}
+  \]
+  Equivalentemente, como \textbf{programa cuadrático}:
+  \[
+    \min_x \; \tfrac12 x^TQx + c^Tx
+    \quad\text{s.a. } Cx=d,
+    \qquad Q = 2A^TA,\;\; c^T = -2b^TA \tag{4.43--4.44}
+  \]
+
+  \textbf{Lagrangiano aumentado} (4.45):
+  \[
+    L(x,\lambda) = \tfrac12 x^TQx + c^Tx + \lambda^T(Cx-d)
+  \]
+
+  Condiciones de optimalidad $\Rightarrow$ sistema \textbf{KKT}:
+  \[
+    \begin{bmatrix} Q & C^T \\ C & 0 \end{bmatrix}
+    \begin{bmatrix} x \\ \lambda \end{bmatrix}
+    =
+    \begin{bmatrix} -c \\ d \end{bmatrix}
+    \qquad\Longleftrightarrow\qquad
+    \begin{bmatrix} 2A^TA & C^T \\ C & 0 \end{bmatrix}
+    \begin{bmatrix} x \\ \lambda \end{bmatrix}
+    =
+    \begin{bmatrix} 2A^Tb \\ d \end{bmatrix} \tag{4.47--4.48}
+  \]
+  \vspace{-2mm}
+  {\footnotesize Se resuelve por SVD o QR. Sin restricciones
+  ($C=0$) se recupera el problema estándar.}
+  \fuente
+\end{frame}
+
+\begin{frame}{La norma mínima como caso particular}
+  \small
+  Con $A=I$ y $b=0$, los mínimos cuadrados restringidos se reducen a
+  \textbf{norma mínima}:
+  \[
+    \min_x \|x\|_2^2 \quad\text{s.a. } Cx=d
+    \qquad\Longrightarrow\qquad
+    \begin{bmatrix} I & C^T \\ C & 0 \end{bmatrix}
+    \begin{bmatrix} x \\ \lambda \end{bmatrix}
+    =
+    \begin{bmatrix} 0 \\ d \end{bmatrix} \tag{4.50}
+  \]
+  \[
+    x^* = C^T(CC^T)^{-1}d
+  \]
+
+  \vspace{1mm}
+  \begin{itemize}
+    \item Todo el capítulo es un mismo sistema KKT con distintas matrices:
+      cambio de $Q$, de $C$ o de $d$.
+    \item \textbf{Sistemas con punto de silla:} la matriz KKT es simétrica pero
+      \textbf{indefinida}, aunque $Q$ sea definida positiva. Los solvers
+      genéricos pueden necesitar formulaciones especiales.
+    \item Restricciones de \textbf{desigualdad} ($Cx \le d$, cajas, no
+      negatividad) ya no caben en este esquema lineal: requieren QP ($\S4{.}6$)
+      o el capítulo 6.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{Qué es un programa cuadrático}
+  \small
+  \[
+    \min_x \; \tfrac12 x^TQx + c^Tx
+    \qquad \text{s.a. } Ax \le b \tag{4.51}
+  \]
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.50\textwidth}
+      \begin{itemize}
+        \item $Q$ simétrica.
+        \item $Q \succeq 0$: QP \textbf{convexo}; todo mínimo local es global.
+        \item $Q$ indefinida: no convexo, mucho más difícil.
+        \item A diferencia del PL, el óptimo \textbf{no está en un vértice}:
+          puede caer en una arista, una cara o el interior.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\textwidth]{images/fig_4_16.png}
+      \end{figure}
+      \vspace{-2mm}
+      {\scriptsize\color{gray}Fig.~4.16: restricciones inactivas (izq.: óptimo
+      interior) y activas (der.: óptimo en la frontera).}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Tres familias de algoritmos}
+  \small
+  \begin{block}{1. Conjunto activo (\emph{active set})}
+    Adivinar qué restricciones están activas, resolver el subproblema de
+    igualdades con KKT y corregir el conjunto. \textbf{El simplex de Dantzig es
+    un método de conjunto activo.}
+  \end{block}
+  \begin{block}{2. Punto interior (IPM)}
+    Siguen una trayectoria central desde el interior del conjunto factible.
+    \textbf{Escalan bien} a alta dimensión con restricciones lineales; son el
+    estándar industrial para PL y QP grandes.
+  \end{block}
+  \begin{block}{3. Programación cuadrática secuencial (SQP)}
+    Para problemas \textbf{no lineales}: en cada iteración se aproxima la
+    curvatura con el Hessiano y las restricciones por linealización, y se
+    resuelve un QP. Convergencia \textbf{superlineal} cerca de la solución.
+  \end{block}
+  \vspace{1mm}
+  {\footnotesize El QP es el ladrillo con el que se construyen los métodos
+  modernos para problemas no lineales restringidos.}
+  \fuente
+\end{frame}
+
+\begin{frame}{Mínimos cuadrados \emph{son} un QP}
+  \small
+  \[
+    \|Ax-b\|_2^2 = (Ax-b)^T(Ax-b)
+                 = x^TA^TAx - 2b^TAx + b^Tb \tag{4.52}
+  \]
+  \[
+    Q = A^TA, \qquad c^T = -2b^TA \tag{4.53}
+  \]
+
+  \begin{itemize}
+    \item $A^TA$ es \textbf{simétrica y semidefinida positiva} para cualquier
+      $A$: el QP resultante es \textbf{siempre convexo}.
+    \item Cualquier restricción lineal (cajas, no negatividad, suma fija)
+      se añade directamente y el problema sigue siendo un QP convexo.
+  \end{itemize}
+
+  \begin{block}{En la práctica: \texttt{cvxpy}}
+    \small
+    Reconoce automáticamente el QP y elige un solver especializado (OSQP,
+    SCS, ECOS, GUROBI). Para QP grandes conviene \emph{warm starts}:
+    \texttt{prob.solve(solver=cp.OSQP, warm\_start=True)}.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}[fragile]{Ejemplo: portafolio de Markowitz (E4.5)}
+  \small
+  \[
+    \min_x \; \tfrac12 x^T\Sigma x
+    \quad\text{s.a.}\quad
+    r^Tx \ge R_0,\;\; \mathbf{1}^Tx = 1,\;\; x \ge 0
+  \]
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.52\textwidth}
+      \begin{semiverbatim}
+x = cp.Variable(n, nonneg=True)
+obj = cp.Minimize(0.5*cp.quad_form(x,
+                                 Sigma))
+cons = [cp.sum(x) == 1,
+        r @ x >= R0]
+prob = cp.Problem(obj, cons)
+prob.solve(solver=cp.SCS)
+      \end{semiverbatim}
+    \end{column}
+    \begin{column}{.44\textwidth}
+      \footnotesize
+      \begin{itemize}
+        \item $\Sigma$: covarianza de los rendimientos (el riesgo).
+        \item $r$: rendimientos esperados.
+        \item $x\ge 0$: prohibición de \textbf{ventas en corto}.
+        \item Es \emph{el} QP canónico de las finanzas.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{Mínimos cuadrados no lineales}
+% =============================================================================
+
+\begin{frame}{Gauss--Newton: el problema}
+  \small
+  \[
+    L(\theta) = \tfrac12\sum_{j=1}^{m}\|y_j - N(x_j;\theta)\|_2^2
+              = \tfrac12\sum_{j=1}^{m} f_j(\theta)^2
+              = \tfrac12\|\mathbf{f}(\theta)\|_2^2 \tag{4.54}
+  \]
+  \begin{itemize}
+    \item $\mathbf{f}(\theta)$: \textbf{vector de residuos}; $f_j$ es el error
+      residual en el dato $j$.
+    \item $\theta$: parámetros del modelo no lineal.
+    \item Sin solución cerrada y \textbf{no convexo}.
+    \item Es la formulación que cubre el \textbf{entrenamiento de redes
+      neuronales}: $N$ es la red y $\theta$ son pesos y sesgos
+      (Cap.~10).
+    \item Se ataca con Newton, pero el Hessiano exacto es caro.
+  \end{itemize}
+
+  \vspace{1mm}
+  \begin{block}{Estrategia}
+    \scriptsize
+    Resolver $\nabla_\theta L = 0$ requiere un sistema no lineal de ecuaciones.
+    \textbf{Gauss--Newton aproxima el Hessiano} usando solo primeras derivadas,
+    de modo que cada iteración es un problema de mínimos cuadrados
+    lineales.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{Gradiente, Jacobiano y Hessiano}
+  \small
+  \[
+    \nabla_\theta L = \sum_{j=1}^{m} f_j(\theta)\nabla f_j(\theta)
+                    = J^T\mathbf{f} \tag{4.55}
+  \]
+  \[
+    J = D\mathbf{f} =
+    \begin{bmatrix}
+      \nabla f_1^T \\ \nabla f_2^T \\ \vdots \\ \nabla f_m^T
+    \end{bmatrix}
+    \in \R^{m\times n} \tag{4.56}
+  \]
+  \[
+    H = \nabla_\theta^2 L
+      = J^TJ + \sum_{j=1}^{m} f_j(\theta)\nabla^2 f_j(\theta)
+      = J^TJ + Q \tag{4.58}
+  \]
+
+  \begin{block}{La suposición central de Gauss--Newton}
+    \small
+    Si los residuos $f_j$ son pequeños, el término $Q$ (segundas derivadas) es
+    despreciable:
+    \[
+      H \approx J^TJ \tag{4.59}
+    \]
+    $J^TJ$ es simétrica y \textbf{semidefinida positiva}: garantiza una
+    dirección de descenso.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{La iteración de Gauss--Newton}
+  \small
+  Newton sería $\theta^{k+1} = \theta^k - H^{-1}\nabla L$, pero nunca se forma
+  $H^{-1}$. Se resuelve el sistema y se da el paso:
+
+  \[
+    J_k^TJ_k\, s^k = -J_k^T\mathbf{f}(\theta^k) \qquad\text{\scriptsize\textcolor{gray}{(4.64a)}}
+    \qquad\qquad
+    \theta^{k+1} = \theta^k + s^k \qquad\text{\scriptsize\textcolor{gray}{(4.64b)}}
+  \]
+
+  \begin{block}{Equivalencia con un mínimos cuadrados}
+    \small
+    Resolver (4.64a) equivale exactamente a
+    \[
+      \min_s \; \tfrac12\|Js + \mathbf{f}\|_2^2 \tag{4.66}
+    \]
+    \textbf{Cada iteración de Gauss--Newton es un problema de mínimos cuadrados
+    lineales} --- el del capítulo, con $A=J$ y $b=-\mathbf{f}$.
+  \end{block}
+
+  \vspace{1mm}
+  \footnotesize
+  Consecuencia: todo lo anterior se reutiliza dentro de Gauss--Newton (SVD,
+  QR, regularización, gradiente conjugado).
+  \fuente
+\end{frame}
+
+\begin{frame}{Los modos de falla}
+  \small
+  \begin{alertblock}{Cuándo Gauss--Newton se rompe}
+    \begin{itemize}
+      \item \textbf{Residuos grandes:} la aproximación $H \approx J^TJ$ ignora
+        términos de segundo orden que ya no son pequeños
+        $\Rightarrow$ \textbf{divergencia lejos de la solución}.
+      \item \textbf{$J^TJ$ singular o casi singular:}
+        \begin{enumerate}
+          \item el paso $s^k$ puede ser enorme y \emph{pasarse} de la solución
+            (overshoot);
+          \item el sistema lineal está mal condicionado: pequeños errores en
+            $J$ o $\mathbf{f}$ producen pasos muy distintos;
+          \item la dirección puede no ser de descenso y la iteración se
+            \emph{estanca}.
+        \end{enumerate}
+      \item Salvo residuos muy pequeños, la convergencia es solo
+        \textbf{de primer orden}, no cuadrática.
+    \end{itemize}
+  \end{alertblock}
+
+  \vspace{1mm}
+  Vasta literatura dedicada a estas patologías. La cura práctica estándar es
+  \textbf{amortiguar} el Hessiano.
+  \fuente
+\end{frame}
+
+\begin{frame}{Levenberg--Marquardt: amortiguar el Hessiano}
+  \small
+  \[
+    H \approx J^TJ + \alpha I \qquad\text{\scriptsize\textcolor{gray}{(4.73)}}
+    \qquad\Longrightarrow\qquad
+    (J^TJ + \alpha I)\,\Delta\theta = -J^T\mathbf{f} \qquad\text{\scriptsize\textcolor{gray}{(4.74)}}
+  \]
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.50\textwidth}
+      \begin{itemize}
+        \item $\alpha = 0$: \textbf{Gauss--Newton} puro (rápido cerca del
+          óptimo).
+        \item $\alpha \to \infty$: $\Delta\theta = -\frac{1}{\alpha}J^T\mathbf{f}$:
+          \textbf{descenso de gradiente} con paso $1/\alpha$ (lento pero
+          seguro).
+        \item $\alpha$ \textbf{interpola} entre exploración y explotación.
+      \end{itemize}
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \begin{block}{Dos lecturas}
+        \scriptsize
+        \textbf{1.} Es \textbf{regularización de Tikhonov} ($\S4{.}4$) aplicada
+        al paso de Newton: suma $\alpha$ a los valores singulares al cuadrado.
+
+        \vspace{2mm}
+        \textbf{2.} Es una \textbf{región de confianza}: $\alpha$ controla
+        cuánto se confía en el modelo cuadrático local.
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \vspace{1mm}
+  \footnotesize
+  Usado en visión por computadora, ajuste de curvas, robótica y estimación de
+  parámetros en control. Es el ``mínimos cuadrados no lineales'' por defecto.
+  \fuente
+\end{frame}
+
+\begin{frame}{Cómo se adapta $\alpha$}
+  \small
+  \begin{itemize}
+    \item Comparar la reducción \textbf{real} de la pérdida con la
+      \textbf{predicha} por el modelo cuadrático:
+      \[
+        \rho = \frac{\Delta L_{\text{actual}}}{\Delta L_{\text{predicho}}}
+        \tag{4.76}
+      \]
+      \[
+        \Delta L_{\text{actual}} = L(\theta^k)-L(\theta^{k+1}) \tag{4.77}
+      \]
+      \[
+        \Delta L_{\text{predicho}}
+        = -J^T\mathbf{f}\,\Delta\theta
+          - \Delta\theta^T(J^TJ+\alpha I)\Delta\theta \tag{4.78}
+      \]
+    \item Regla típica: $\rho > 0.75$ $\Rightarrow$ reducir $\alpha$;
+      $\rho < 0.25$ $\Rightarrow$ aumentar $\alpha$.
+      Multiplicar o dividir por un factor $\nu > 1$.
+    \item Se usa el cociente, no la magnitud absoluta: cerca del mínimo las
+      reducciones son diminutas pero deben seguir siendo las predichas.
+    \item Inicialización habitual: $\alpha \sim 10^{-3}$.
+    \item Variante más fina: escalar cada entrada diagonal,
+      $H = J^TJ + \alpha\,\mathrm{diag}(J^TJ)$ (4.80), para respetar la
+      \textbf{curvatura local} de cada parámetro.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{El método del gradiente conjugado}
+% =============================================================================
+
+\begin{frame}{Gradiente conjugado: para qué}
+  \small
+  \[
+    Ax = b, \qquad A \in \R^{n\times n} \text{ simétrica definida positiva}
+    \tag{4.81}
+  \]
+  \begin{itemize}
+    \item \textbf{No factoriza $A$}: solo necesita productos matriz--vector.
+    \item Ideal para sistemas \textbf{grandes y dispersos}; el ejemplo clásico es
+      la ecuación de Poisson en dinámica de fluidos.
+    \item Convergencia garantizada en \textbf{a lo sumo $n$ iteraciones}.
+    \item Su uso estrella aquí: resolver la ecuación de Gauss--Newton
+      \[
+        J^TJ\,\Delta x = -J^T\mathbf{f} \tag{4.82}
+      \]
+      \textbf{sin formar ni almacenar $J^TJ$}. La memoria se dispara:
+      $J$ es $m\times n$ y $J^TJ$ sería $n\times n$ densa.
+    \item También mejora la estabilidad frente a la inversión explícita de un
+      Hessiano mal condicionado. El precio: la convergencia sigue dependiendo
+      de $\kappa(J^TJ)$.
+  \end{itemize}
+  \fuente
+\end{frame}
+
+\begin{frame}{La idea: base $A$-conjugada}
+  \small
+  Direcciones \textbf{conjugadas} = ortogonales en el producto interior
+  $\langle u,v\rangle_A = u^TAv$:
+  \[
+    p_i^TAp_j = 0 \qquad \forall\, i \ne j \tag{4.83}
+  \]
+  Si $A \succ 0$, el conjunto $\{p_j\}_{j=1}^n$ es una \textbf{base de
+  $\R^n$}. Se expande la solución y se despeja cada coeficiente:
+  \[
+    x = \sum_{j=1}^{n}\alpha_j p_j \tag{4.84}
+  \]
+  multiplicando $Ax=b$ por $p_k^T$ y usando la conjugación, todos los términos
+  salvo uno se anulan:
+  \[
+    \alpha_k = \frac{p_k^Tb}{p_k^TAp_k} \tag{4.88}
+  \]
+  \begin{block}{Por qué es mejor que el descenso de gradiente}
+    \scriptsize
+    En CG, minimizar a lo largo de una dirección \textbf{no destruye} el progreso
+    hecho en las anteriores. El descenso de gradiente sí lo destruye: por eso
+    zigzaguea.
+  \end{block}
+  \fuente
+\end{frame}
+
+\begin{frame}{El algoritmo}
+  \small
+  Inicializar e iterar:
+  \[
+    x_0,\qquad r_0 = b-Ax_0,\qquad p_0 = r_0 \tag{4.94}
+  \]
+  \[
+    \alpha_k = \frac{r_k^Tr_k}{p_k^TAp_k} \qquad\text{\scriptsize\textcolor{gray}{(4.95a)}}
+    \qquad
+    x^{k+1} = x^k + \alpha_k p_k \qquad\text{\scriptsize\textcolor{gray}{(4.95b)}}
+    \qquad
+    r_{k+1} = r_k - \alpha_k Ap_k \qquad\text{\scriptsize\textcolor{gray}{(4.95c)}}
+  \]
+  \[
+    \beta_k = \frac{r_{k+1}^Tr_{k+1}}{r_k^Tr_k} \qquad\text{\scriptsize\textcolor{gray}{(4.96a)}}
+    \qquad
+    p_{k+1} = r_{k+1} + \beta_k p_k \qquad\text{\scriptsize\textcolor{gray}{(4.96b)}}
+  \]
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{.48\textwidth}
+      \textbf{Qué guarda:} solo tres vectores ($x^k$, $r_k$, $p_k$).
+      Memoria $\Theta(n)$.
+    \end{column}
+    \begin{column}{.48\textwidth}
+      \textbf{Qué cuesta por iteración:} un producto $Ap_k$, dos productos
+      internos y tres operaciones vectoriales. Nada de factorizar.
+    \end{column}
+  \end{columns}
+  \fuente
+\end{frame}
+
+\begin{frame}{Convergencia, precondicionamiento y GMRES}
+  \small
+  \[
+    \|x^k - x^*\|_A \le C\left(\frac{\kappa(A)-1}{\kappa(A)+1}\right)^{k}
+    \tag{4.97}
+  \]
+  \begin{itemize}
+    \item Cota en la \textbf{norma de energía} $\|\cdot\|_A$; $\kappa$ es el
+      cociente de valores propios extremos.
+    \item Con $\kappa$ grande la cota es casi 1 y CG se arrastra:
+      \textbf{el precondicionamiento es obligatorio en la práctica}.
+    \item Se resuelve $M^{-1}Ax = M^{-1}b$ (4.98) con $M \approx A$ pero fácil
+      de invertir.
+  \end{itemize}
+
+  \begin{block}{Panel 4.4: GMRES}
+    \scriptsize
+    Cuando $A$ \textbf{no} es simétrica definida positiva, CG no aplica.
+    \textbf{GMRES} minimiza $\|r\|_2$ sobre el subespacio de Krylov usando la
+    iteración de Arnoldi. El costo de ortogonalización crece con las
+    iteraciones, así que se usa reiniciado (\textbf{GMRES(m)}). También depende
+    críticamente del precondicionador. Es el \emph{caballo de batalla} para
+    sistemas no simétricos (fluidos, electromagnetismo).
+  \end{block}
+  \fuente
+\end{frame}
+
+% =============================================================================
+\section{Cierre}
+% =============================================================================
+
+\begin{frame}{Puntos para recordar}
+  \small
+  \begin{enumerate}
+    \item \textbf{Dos regímenes, una matriz:} sobredeterminado $\to$ mínimos
+      cuadrados; subdeterminado $\to$ norma mínima. Ambas son $A^{\dagger}b$.
+    \item \textbf{Nunca $A^TA$:} se usa la SVD. Es estable, siempre existe y da
+      la aproximación óptima de bajo rango (Eckart--Young).
+    \item \textbf{Conditioning es el enemigo:} el ruido se multiplica por
+      $\kappa(A)$. Truncar la SVD o regularizar (ridge) son las dos curas.
+    \item \textbf{$\ell_1$ frente a $\ell_2$:} $\ell_1$ da robustez a outliers
+      (mediana) y dispersidad (LASSO, compressed sensing). El precio es perder
+      la fórmula cerrada.
+    \item \textbf{Las restricciones son un sistema KKT:} una sola estructura
+      matricial cubre norma mínima y mínimos cuadrados restringidos.
+    \item \textbf{Mínimos cuadrados es un QP convexo:} cualquier restricción
+      lineal encaja; \texttt{cvxpy} lo resuelve.
+    \item \textbf{No lineal:} Gauss--Newton convierte cada iteración en un
+      mínimos cuadrados; Levenberg--Marquardt lo amortigua para no divergir.
+    \item \textbf{Grande y disperso:} gradiente conjugado, con productos
+      matriz--vector y memoria $\Theta(n)$.
+  \end{enumerate}
+  \fuente
+\end{frame}
+
+\begin{frame}{El mapa completo}
+  \centering
+  \small
+  \vspace{2mm}
+  \begin{tabular}{@{}p{0.30\textwidth}p{0.62\textwidth}@{}}
+    \toprule
+    \textbf{Herramienta} & \textbf{Qué problema resuelve} \\
+    \midrule
+    Ecuaciones normales & LS sobredeterminado, rango completo, bien condicionado \\
+    SVD / pseudo-inversa & LS y norma mínima, estable, cualquier rango \\
+    Truncamiento SVD & conditioning malo, ruido en los modos débiles \\
+    Ridge (Tikhonov) & conditioning malo con sesgo controlado \\
+    LASSO / elastic net & selección de variables, modelos interpretables \\
+    KKT & restricciones de igualdad \\
+    QP (active set / IPM) & restricciones de desigualdad, cajas, portafolios \\
+    Gauss--Newton & regresión no lineal, redes neuronales \\
+    Levenberg--Marquardt & Gauss--Newton con residuos grandes o mal condicionado \\
+    Gradiente conjugado & sistemas enormes y dispersos, sin factorizar \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{4mm}
+  {\footnotesize\color{gray}
+    Todo el capítulo es una sola idea con distintos disfraces: proyectar
+    $b$ sobre un subespacio y controlar cuánto se confía en las direcciones
+    débiles.}
+\end{frame}
+
+\begin{frame}{Para profundizar}
+  \small
+  \textbf{Libros}
+  \begin{itemize}
+    \item Brunton \& Kutz, \emph{Data-Driven Science and Engineering} (2022).
+    \item James, Witten, Hastie \& Tibshirani, \emph{An Introduction to
+      Statistical Learning} (2013).
+    \item Trefethen, \emph{Numerical Linear Algebra} (2022).
+    \item Antoulas, \emph{Approximation of Large-Scale Dynamical Systems}
+      (2005).
+  \end{itemize}
+
+  \textbf{Artículos fundacionales}
+  \begin{itemize}
+    \item Tikhonov (1943), \emph{On the stability of inverse problems}.
+    \item Tibshirani (1996), \emph{Regression shrinkage and selection via the
+      Lasso}.
+    \item Zou \& Hastie (2005), \emph{Regularization and variable selection via
+      the elastic net}.
+    \item Donoho (2006), \emph{Compressed sensing}.
+    \item Cand\`es, Romberg \& Tao (2006), \emph{Stable signal recovery from
+      incomplete and inaccurate measurements}.
+  \end{itemize}
+
+  \vfill
+  \centering
+  {\footnotesize\color{gray}
+    Siguiente capítulo: optimización no suave y global.}
+\end{frame}
+
+% =============================================================================
+\end{document}
