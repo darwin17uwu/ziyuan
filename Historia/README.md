@@ -158,7 +158,7 @@ A continuación se enumeran la lista de temas de presentación de la clase basad
 ## Capítulo 9 — El desarrollo de la teoría de la probabilidad: Pascal, Bernoulli y Laplace — p. 439
 - **9.1 Los orígenes de la teoría de la probabilidad** (439)
   - Las tablas de mortalidad de Graunt (439)
-  - Juegos de azar: dados y cartas (443)
+  - Juegos de azar: dados y cartas (443)  ** Darwin H.**
   - La precocidad del joven Pascal (446)  **Indira Jackeline Jimenez Espinoza 28/10/2026**
   - Pascal y la cicloide (452)
   - El problema de los puntos de De Méré (454)
